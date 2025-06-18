@@ -1,5 +1,5 @@
 //
-//  DyteSampleHandler.swift
+//  RtkSampleHandler.swift
 //  ShareScreenExtension
 //
 //  Created by sudhir kumar on 29/05/24.
@@ -394,7 +394,7 @@ enum ScreenShareError : Error {
 }
 
 
-open class DyteSampleHandler: RPBroadcastSampleHandler {
+open class RtkSampleHandler: RPBroadcastSampleHandler {
     private var clientConnection: BroadcastUploadSocketConnection?
     private var uploader: SampleUploader?
 
