@@ -367,7 +367,6 @@ private extension BroadcastUploadSocketConnection {
     }
 }
 
-
 private enum DarwinNotification: String {
     case broadcastStarted = "broadcastStarted"
     case broadcastStopped = "broadcastStopped"
