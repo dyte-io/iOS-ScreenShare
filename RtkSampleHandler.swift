@@ -9,7 +9,6 @@
 import Foundation
 import ReplayKit
 
-
 @propertyWrapper
 struct Atomic<Value> {
     private var value: Value
@@ -41,139 +40,139 @@ private enum ScreenShareConstants {
     static let bufferMaxLength = 10240
 }
 
-fileprivate var printLogs = false
+private var printLogs = false
 private class SampleUploader {
-        private static var imageContext = CIContext(options: nil)
+    private static var imageContext = CIContext(options: nil)
 
-        @Atomic private var isReady = false
-        private var connection: BroadcastUploadSocketConnection
+    @Atomic private var isReady = false
+    private var connection: BroadcastUploadSocketConnection
 
-        private var dataToSend: Data?
-        private var byteIndex = 0
+    private var dataToSend: Data?
+    private var byteIndex = 0
 
-        private let serialQueue: DispatchQueue
+    private let serialQueue: DispatchQueue
 
-        init(connection: BroadcastUploadSocketConnection) {
-            self.connection = connection
-            serialQueue = DispatchQueue(label: "SampleHandler")
-            setupConnection()
-        }
-
-        @discardableResult func send(sample buffer: CMSampleBuffer) -> Bool {
-            guard isReady else {
-                return false
-            }
-
-            isReady = false
-
-            dataToSend = prepare(sample: buffer)
-            byteIndex = 0
-
-            serialQueue.async { [weak self] in
-                self?.sendDataChunk()
-            }
-
-            return true
-        }
+    init(connection: BroadcastUploadSocketConnection) {
+        self.connection = connection
+        serialQueue = DispatchQueue(label: "SampleHandler")
+        setupConnection()
     }
+
+    @discardableResult func send(sample buffer: CMSampleBuffer) -> Bool {
+        guard isReady else {
+            return false
+        }
+
+        isReady = false
+
+        dataToSend = prepare(sample: buffer)
+        byteIndex = 0
+
+        serialQueue.async { [weak self] in
+            self?.sendDataChunk()
+        }
+
+        return true
+    }
+}
 
 private extension SampleUploader {
-        func setupConnection() {
-            connection.didOpen = { [weak self] in
-                if printLogs { NSLog("ScreenShare connection.didOpen")}
-                self?.isReady = true
-            }
-            connection.streamHasSpaceAvailable = { [weak self] in
-                self?.serialQueue.async {
-                    if let success = self?.sendDataChunk() {
-                        self?.isReady = !success
-                    }
+    func setupConnection() {
+        connection.didOpen = { [weak self] in
+            if printLogs { NSLog("ScreenShare connection.didOpen") }
+            self?.isReady = true
+        }
+        connection.streamHasSpaceAvailable = { [weak self] in
+            self?.serialQueue.async {
+                if let success = self?.sendDataChunk() {
+                    self?.isReady = !success
                 }
             }
-        }
-
-        @discardableResult func sendDataChunk() -> Bool {
-            guard let dataToSend else {
-                return false
-            }
-        
-            if printLogs {NSLog("ScreenShare sendDataChunk")}
-
-            var bytesLeft = dataToSend.count - byteIndex
-            var length = bytesLeft > ScreenShareConstants.bufferMaxLength ? ScreenShareConstants.bufferMaxLength : bytesLeft
-
-            length = dataToSend[byteIndex ..< (byteIndex + length)].withUnsafeBytes {
-                guard let ptr = $0.bindMemory(to: UInt8.self).baseAddress else {
-                    return 0
-                }
-
-                return connection.writeToStream(buffer: ptr, maxLength: length)
-            }
-
-            if length > 0 {
-                byteIndex += length
-                bytesLeft -= length
-
-                if bytesLeft == 0 {
-                    self.dataToSend = nil
-                    byteIndex = 0
-                }
-            } else {
-                if printLogs { NSLog("SS: writeBufferToStream failure") }
-            }
-
-            return true
-        }
-
-        func prepare(sample buffer: CMSampleBuffer) -> Data? {
-            guard let imageBuffer = CMSampleBufferGetImageBuffer(buffer) else {
-                if printLogs { NSLog("image buffer not available")}
-                return nil
-            }
-
-            CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
-
-            let scaleFactor = 1.0
-            let width = CVPixelBufferGetWidth(imageBuffer) / Int(scaleFactor)
-            let height = CVPixelBufferGetHeight(imageBuffer) / Int(scaleFactor)
-
-            let orientation = CMGetAttachment(buffer, key: RPVideoSampleOrientationKey as CFString, attachmentModeOut: nil)?.uintValue ?? 0
-
-            let scaleTransform = CGAffineTransform(scaleX: CGFloat(1.0 / scaleFactor), y: CGFloat(1.0 / scaleFactor))
-            let bufferData = jpegData(from: imageBuffer, scale: scaleTransform)
-
-            CVPixelBufferUnlockBaseAddress(imageBuffer, .readOnly)
-
-            guard let messageData = bufferData else {
-                if printLogs { NSLog("corrupted image buffer") }
-                return nil
-            }
-
-            let httpResponse = CFHTTPMessageCreateResponse(nil, 200, nil, kCFHTTPVersion1_1).takeRetainedValue()
-            CFHTTPMessageSetHeaderFieldValue(httpResponse, "Content-Length" as CFString, String(messageData.count) as CFString)
-            CFHTTPMessageSetHeaderFieldValue(httpResponse, "Buffer-Width" as CFString, String(width) as CFString)
-            CFHTTPMessageSetHeaderFieldValue(httpResponse, "Buffer-Height" as CFString, String(height) as CFString)
-            CFHTTPMessageSetHeaderFieldValue(httpResponse, "Buffer-Orientation" as CFString, String(orientation) as CFString)
-
-            CFHTTPMessageSetBody(httpResponse, messageData as CFData)
-
-            let serializedMessage = CFHTTPMessageCopySerializedMessage(httpResponse)?.takeRetainedValue() as Data?
-
-            return serializedMessage
-        }
-
-        func jpegData(from buffer: CVPixelBuffer, scale scaleTransform: CGAffineTransform) -> Data? {
-            let image = CIImage(cvPixelBuffer: buffer).transformed(by: scaleTransform)
-
-            guard let colorSpace = image.colorSpace else {
-                return nil
-            }
-
-            let options: [CIImageRepresentationOption: Float] = [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.6]
-
-            return SampleUploader.imageContext.jpegRepresentation(of: image, colorSpace: colorSpace, options: options)
         }
     }
+
+    @discardableResult func sendDataChunk() -> Bool {
+        guard let dataToSend else {
+            return false
+        }
+
+        if printLogs { NSLog("ScreenShare sendDataChunk") }
+
+        var bytesLeft = dataToSend.count - byteIndex
+        var length = bytesLeft > ScreenShareConstants.bufferMaxLength ? ScreenShareConstants.bufferMaxLength : bytesLeft
+
+        length = dataToSend[byteIndex ..< (byteIndex + length)].withUnsafeBytes {
+            guard let ptr = $0.bindMemory(to: UInt8.self).baseAddress else {
+                return 0
+            }
+
+            return connection.writeToStream(buffer: ptr, maxLength: length)
+        }
+
+        if length > 0 {
+            byteIndex += length
+            bytesLeft -= length
+
+            if bytesLeft == 0 {
+                self.dataToSend = nil
+                byteIndex = 0
+            }
+        } else {
+            if printLogs { NSLog("SS: writeBufferToStream failure") }
+        }
+
+        return true
+    }
+
+    func prepare(sample buffer: CMSampleBuffer) -> Data? {
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(buffer) else {
+            if printLogs { NSLog("image buffer not available") }
+            return nil
+        }
+
+        CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
+
+        let scaleFactor = 1.0
+        let width = CVPixelBufferGetWidth(imageBuffer) / Int(scaleFactor)
+        let height = CVPixelBufferGetHeight(imageBuffer) / Int(scaleFactor)
+
+        let orientation = CMGetAttachment(buffer, key: RPVideoSampleOrientationKey as CFString, attachmentModeOut: nil)?.uintValue ?? 0
+
+        let scaleTransform = CGAffineTransform(scaleX: CGFloat(1.0 / scaleFactor), y: CGFloat(1.0 / scaleFactor))
+        let bufferData = jpegData(from: imageBuffer, scale: scaleTransform)
+
+        CVPixelBufferUnlockBaseAddress(imageBuffer, .readOnly)
+
+        guard let messageData = bufferData else {
+            if printLogs { NSLog("corrupted image buffer") }
+            return nil
+        }
+
+        let httpResponse = CFHTTPMessageCreateResponse(nil, 200, nil, kCFHTTPVersion1_1).takeRetainedValue()
+        CFHTTPMessageSetHeaderFieldValue(httpResponse, "Content-Length" as CFString, String(messageData.count) as CFString)
+        CFHTTPMessageSetHeaderFieldValue(httpResponse, "Buffer-Width" as CFString, String(width) as CFString)
+        CFHTTPMessageSetHeaderFieldValue(httpResponse, "Buffer-Height" as CFString, String(height) as CFString)
+        CFHTTPMessageSetHeaderFieldValue(httpResponse, "Buffer-Orientation" as CFString, String(orientation) as CFString)
+
+        CFHTTPMessageSetBody(httpResponse, messageData as CFData)
+
+        let serializedMessage = CFHTTPMessageCopySerializedMessage(httpResponse)?.takeRetainedValue() as Data?
+
+        return serializedMessage
+    }
+
+    func jpegData(from buffer: CVPixelBuffer, scale scaleTransform: CGAffineTransform) -> Data? {
+        let image = CIImage(cvPixelBuffer: buffer).transformed(by: scaleTransform)
+
+        guard let colorSpace = image.colorSpace else {
+            return nil
+        }
+
+        let options: [CIImageRepresentationOption: Float] = [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.6]
+
+        return SampleUploader.imageContext.jpegRepresentation(of: image, colorSpace: colorSpace, options: options)
+    }
+}
 
 private class BroadcastUploadSocketConnection: NSObject {
     var didOpen: (() -> Void)?
@@ -205,17 +204,17 @@ private class BroadcastUploadSocketConnection: NSObject {
         if printLogs { NSLog("ScreenShare BroadcastUploadSocketConnection open") }
 
         guard FileManager.default.fileExists(atPath: filePath) else {
-            if printLogs {  NSLog("ScreenShare BroadcastUploadSocketConnection Didn't open as file doesn't exist \(filePath)") }
+            if printLogs { NSLog("ScreenShare BroadcastUploadSocketConnection Didn't open as file doesn't exist \(filePath)") }
             return false
         }
 
         guard setupAddress() == true else {
-            if printLogs {  NSLog("ScreenShare BroadcastUploadSocketConnection Didn't open as Setupaddress is false") }
+            if printLogs { NSLog("ScreenShare BroadcastUploadSocketConnection Didn't open as Setupaddress is false") }
             return false
         }
 
         guard connectSocket() == true else {
-            if printLogs {  NSLog("ScreenShare BroadcastUploadSocketConnection Didn't open as connectSocket is false") }
+            if printLogs { NSLog("ScreenShare BroadcastUploadSocketConnection Didn't open as connectSocket is false") }
 
             return false
         }
@@ -256,7 +255,7 @@ extension BroadcastUploadSocketConnection: StreamDelegate {
         case .hasBytesAvailable:
             if aStream == inputStream {
                 var buffer: UInt8 = 0
-                
+
                 let numberOfBytesRead = inputStream?.read(&buffer, maxLength: 1)
                 if numberOfBytesRead == 0, aStream.streamStatus == .atEnd {
                     close()
@@ -270,7 +269,6 @@ extension BroadcastUploadSocketConnection: StreamDelegate {
         case .errorOccurred:
             close()
             notifyDidClose(error: aStream.streamError)
-
         default:
             break
         }
@@ -308,7 +306,7 @@ private extension BroadcastUploadSocketConnection {
         }
 
         guard status == noErr else {
-            if printLogs {  NSLog("ScreenShare connectSocket is false because Status has error \(noErr)") }
+            if printLogs { NSLog("ScreenShare connectSocket is false because Status has error \(noErr)") }
             return false
         }
 
@@ -337,7 +335,7 @@ private extension BroadcastUploadSocketConnection {
 
         networkQueue = DispatchQueue.global(qos: .userInitiated)
         networkQueue?.async { [weak self] in
-            if printLogs {  NSLog("ScreenShare BroadcastUploadSocketConnection Scheduling Streams") }
+            if printLogs { NSLog("ScreenShare BroadcastUploadSocketConnection Scheduling Streams") }
 
             self?.inputStream?.schedule(in: .current, forMode: .common)
             self?.outputStream?.schedule(in: .current, forMode: .common)
@@ -350,7 +348,6 @@ private extension BroadcastUploadSocketConnection {
     }
 
     func unscheduleStreams() {
-        
         networkQueue?.sync { [weak self] in
             self?.inputStream?.remove(from: .current, forMode: .common)
             self?.outputStream?.remove(from: .current, forMode: .common)
@@ -360,7 +357,7 @@ private extension BroadcastUploadSocketConnection {
     }
 
     func notifyDidClose(error: Error?) {
-        if printLogs {  NSLog("ScreenShare notifyDidClose \(error)") }
+        if printLogs { NSLog("ScreenShare notifyDidClose \(error)") }
         if didClose != nil {
             didClose?(error)
         }
@@ -368,10 +365,10 @@ private extension BroadcastUploadSocketConnection {
 }
 
 private enum DarwinNotification: String {
-    case broadcastStarted = "broadcastStarted"
-    case broadcastStopped = "broadcastStopped"
-    case broadcastPaused = "broadcastPaused"
-    case broadcastResumed = "broadcastResumed"
+    case broadcastStarted
+    case broadcastStopped
+    case broadcastPaused
+    case broadcastResumed
 }
 
 private class DarwinNotificationCenter {
@@ -388,124 +385,120 @@ private class DarwinNotificationCenter {
     }
 }
 
-enum ScreenShareError : Error {
+enum ScreenShareError: Error {
     case producerDisconnected(reason: String)
     case unknownError
 }
-
 
 open class RtkSampleHandler: RPBroadcastSampleHandler {
     private var clientConnection: BroadcastUploadSocketConnection?
     private var uploader: SampleUploader?
 
     public var appGroupIdentifier: String? {
-      Bundle.main.infoDictionary?["RTKRTCAppGroupIdentifier"] as? String
+        Bundle.main.infoDictionary?["RTKRTCAppGroupIdentifier"] as? String
     }
 
     public var socketFilePath: String {
-            guard let appGroupIdentifier,
-                  let sharedContainer = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
-            else {
-                return ""
-            }
-
-            return sharedContainer.appendingPathComponent("rtc_SSFD").path
+        guard let appGroupIdentifier,
+              let sharedContainer = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
+        else {
+            return ""
         }
 
-        override public init() {
-            super.init()
-            if printLogs {
-                NSLog("ScreenShare SampleHandler Init")
-            }
-            if let connection = BroadcastUploadSocketConnection(filePath: socketFilePath) {
-                clientConnection = connection
-                setupConnection()
+        return sharedContainer.appendingPathComponent("rtc_SSFD").path
+    }
 
-                uploader = SampleUploader(connection: connection)
-            }
+    override public init() {
+        super.init()
+        if printLogs {
+            NSLog("ScreenShare SampleHandler Init")
         }
+        if let connection = BroadcastUploadSocketConnection(filePath: socketFilePath) {
+            clientConnection = connection
+            setupConnection()
 
-    
-        override public func broadcastStarted(withSetupInfo _: [String: NSObject]?) {
-            // User has requested to start the broadcast. Setup info from the UI extension can be supplied but optional.d
-            DarwinNotificationCenter.shared.postNotification(.broadcastStarted)
-            if printLogs { NSLog("ScreenShare broadcastStarted for native Kotlin ")}
-            openConnection()
+            uploader = SampleUploader(connection: connection)
         }
+    }
 
-        override public func broadcastPaused() {
-            if printLogs {NSLog("ScreenShare broadcastPaused for native Kotlin ")}
-            DarwinNotificationCenter.shared.postNotification(.broadcastPaused)
+    override public func broadcastStarted(withSetupInfo _: [String: NSObject]?) {
+        // User has requested to start the broadcast. Setup info from the UI extension can be supplied but optional.d
+        DarwinNotificationCenter.shared.postNotification(.broadcastStarted)
+        if printLogs { NSLog("ScreenShare broadcastStarted for native Kotlin ") }
+        openConnection()
+    }
 
-            // User has requested to pause the broadcast. Samples will stop being delivered.
+    override public func broadcastPaused() {
+        if printLogs { NSLog("ScreenShare broadcastPaused for native Kotlin ") }
+        DarwinNotificationCenter.shared.postNotification(.broadcastPaused)
+
+        // User has requested to pause the broadcast. Samples will stop being delivered.
+    }
+
+    override public func broadcastResumed() {
+        if printLogs { NSLog("ScreenShare broadcastResumed for native Kotlin ") }
+        DarwinNotificationCenter.shared.postNotification(.broadcastResumed)
+
+        // User has requested to resume the broadcast. Samples delivery will resume.
+    }
+
+    override public func broadcastFinished() {
+        if printLogs { NSLog("ScreenShare broadcastFinished for native Kotlin ") }
+
+        // User has requested to finish the broadcast.
+        DarwinNotificationCenter.shared.postNotification(.broadcastStopped)
+        clientConnection?.close()
+    }
+
+    override public func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
+        if printLogs { NSLog("ScreenShare processSampleBuffer ") }
+        switch sampleBufferType {
+        case RPSampleBufferType.video:
+            uploader?.send(sample: sampleBuffer)
+        default:
+            break
         }
+    }
 
-        override public func broadcastResumed() {
-            if printLogs { NSLog("ScreenShare broadcastResumed for native Kotlin ")}
-            DarwinNotificationCenter.shared.postNotification(.broadcastResumed)
-
-            // User has requested to resume the broadcast. Samples delivery will resume.
-        }
-
-        override public func broadcastFinished() {
-            if printLogs { NSLog("ScreenShare broadcastFinished for native Kotlin ")}
-
-            // User has requested to finish the broadcast.
-            DarwinNotificationCenter.shared.postNotification(.broadcastStopped)
-            clientConnection?.close()
-        }
-
-        override public func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
-            if printLogs { NSLog("ScreenShare processSampleBuffer ")}
-            switch sampleBufferType {
-            case RPSampleBufferType.video:
-                uploader?.send(sample: sampleBuffer)
-            default:
-                break
-            }
-        }
-
-        private func setupConnection() {
-            clientConnection?.didClose = { [weak self] error in
-                if let error {
-                    self?.finishBroadcastWithError(error)
-                } else {
-                    // the displayed failure message is more user friendly when using NSError instead of Error
-                    let RTKScreenSharingStopped = 10001
-                    let customError = NSError(domain: RPRecordingErrorDomain, code: RTKScreenSharingStopped, userInfo: [NSLocalizedDescriptionKey: "Screen sharing stopped by user"])
-                    self?.finishBroadcastWithError(customError)
-                }
+    private func setupConnection() {
+        clientConnection?.didClose = { [weak self] error in
+            if let error {
+                self?.finishBroadcastWithError(error)
+            } else {
+                // the displayed failure message is more user friendly when using NSError instead of Error
+                let RTKScreenSharingStopped = 10001
+                let customError = NSError(domain: RPRecordingErrorDomain, code: RTKScreenSharingStopped, userInfo: [NSLocalizedDescriptionKey: "Screen sharing stopped by user"])
+                self?.finishBroadcastWithError(customError)
             }
         }
+    }
 
-        private func openConnection() {
-            let queue = DispatchQueue(label: "broadcast.connectTimer")
-            let timer = DispatchSource.makeTimerSource(queue: queue)
-            timer.schedule(deadline: .now(), repeating: .milliseconds(100), leeway: .milliseconds(500))
-            timer.setEventHandler { [weak self] in
-                if printLogs { NSLog("ScreenShare openConnection Tried to open connection")}
-                guard self?.clientConnection?.open() == true, self?.checkBroadCastIsActive() == true else {
-                    if printLogs { NSLog("ScreenShare not able to open connection")}
+    private func openConnection() {
+        let queue = DispatchQueue(label: "broadcast.connectTimer")
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(100), leeway: .milliseconds(500))
+        timer.setEventHandler { [weak self] in
+            if printLogs { NSLog("ScreenShare openConnection Tried to open connection") }
+            guard self?.clientConnection?.open() == true, self?.checkBroadCastIsActive() == true else {
+                if printLogs { NSLog("ScreenShare not able to open connection") }
 
-                    return
-                }
-                if printLogs {  NSLog("ScreenShare openConnection timer set event")}
-                timer.cancel()
+                return
             }
-
-            timer.resume()
+            if printLogs { NSLog("ScreenShare openConnection timer set event") }
+            timer.cancel()
         }
-    
-    func checkBroadCastIsActive() -> Bool{
+
+        timer.resume()
+    }
+
+    func checkBroadCastIsActive() -> Bool {
         if let appGroupID = appGroupIdentifier {
             if let isForcedToStop = UserDefaults(suiteName: appGroupID)?.value(forKey: "ForcedStopBroadCast") as? Bool, isForcedToStop == true {
                 UserDefaults(suiteName: appGroupID)?.removeObject(forKey: "ForcedStopBroadCast")
-                self.finishBroadcastWithError(ScreenShareError.producerDisconnected(reason: "Not able to connect to internet"))
+                finishBroadcastWithError(ScreenShareError.producerDisconnected(reason: "Not able to connect to internet"))
                 return false
             }
         }
         return true
     }
-   
 }
-
