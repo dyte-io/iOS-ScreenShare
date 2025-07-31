@@ -399,7 +399,7 @@ open class RtkSampleHandler: RPBroadcastSampleHandler {
     private var uploader: SampleUploader?
 
     public var appGroupIdentifier: String? {
-      Bundle.main.infoDictionary?["RTCAppGroupIdentifier"] as? String
+      Bundle.main.infoDictionary?["RTKRTCAppGroupIdentifier"] as? String
     }
 
     public var socketFilePath: String {
@@ -471,8 +471,8 @@ open class RtkSampleHandler: RPBroadcastSampleHandler {
                     self?.finishBroadcastWithError(error)
                 } else {
                     // the displayed failure message is more user friendly when using NSError instead of Error
-                    let LKScreenSharingStopped = 10001
-                    let customError = NSError(domain: RPRecordingErrorDomain, code: LKScreenSharingStopped, userInfo: [NSLocalizedDescriptionKey: "Screen sharing stopped by user"])
+                    let RTKScreenSharingStopped = 10001
+                    let customError = NSError(domain: RPRecordingErrorDomain, code: RTKScreenSharingStopped, userInfo: [NSLocalizedDescriptionKey: "Screen sharing stopped by user"])
                     self?.finishBroadcastWithError(customError)
                 }
             }
